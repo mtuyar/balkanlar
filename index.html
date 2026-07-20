@@ -39,7 +39,10 @@ header.top{position:sticky;top:0;z-index:60;background:color-mix(in srgb,var(--b
 .top-row{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 6px}
 .top-row .brand{font-family:'Lora',serif;font-weight:700;font-size:1.02rem}
 .top-row .brand span{color:var(--gold)}
-#themeBtn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:5px 12px;font-size:.85rem;cursor:pointer}
+.topbtns{display:flex;gap:8px;align-items:center}
+#themeBtn,#revBtn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:5px 12px;font-size:.85rem;cursor:pointer;white-space:nowrap}
+#revBtn.on{background:var(--green);color:#fff;border-color:var(--green)}
+[data-theme="dark"] #revBtn.on{background:#256349;color:#eafaf0;border-color:#2f7d5c}
 nav.chips{display:flex;gap:8px;overflow-x:auto;padding:6px 16px 12px;scrollbar-width:none}
 nav.chips::-webkit-scrollbar{display:none}
 nav.chips a{flex:0 0 auto;background:var(--chip);color:var(--chipink);border:1px solid var(--line);border-radius:99px;padding:6px 14px;font-size:.85rem;font-weight:600;white-space:nowrap}
@@ -184,7 +187,10 @@ footer{border-top:1px solid var(--line);margin-top:60px;padding:26px 16px 40px;t
 <header class="top">
   <div class="top-row">
     <div class="brand">Balkanlar <span>Rehberi</span></div>
-    <button id="themeBtn" aria-label="Tema değiştir">◐ Tema</button>
+    <div class="topbtns">
+      <button id="revBtn" aria-label="Rota yönünü ters çevir">⇄ Ters rota</button>
+      <button id="themeBtn" aria-label="Tema değiştir">◐ Tema</button>
+    </div>
   </div>
   <nav class="chips" id="chips">
     <a href="#srebrenitsa">✦ Srebrenitsa</a>
@@ -211,7 +217,7 @@ footer{border-top:1px solid var(--line);margin-top:60px;padding:26px 16px 40px;t
     <h1>Büyük Balkanlar Turu<br>Gezi &amp; Tefekkür Rehberi</h1>
     <p class="sub">Sırbistan, Bosna-Hersek, Karadağ, Arnavutluk, Kuzey Makedonya ve Kosova — Evlad-ı Fatihân diyarında sekiz gün. Yolculuğun ilk günü Srebrenitsa Soykırımı'nın <b>31. yıl dönümü</b>: bu rehber, gezdiğin her taşı o şuurla okuman için TDV İslâm Ansiklopedisi ve ilmî kaynaklarla hazırlandı.</p>
     <div class="facts">
-      <span>✈ Konya → Belgrad</span><span>6 ülke</span><span>3 UNESCO mirası</span><span>✈ Üsküp → Konya</span>
+      <span class="flt" data-flt="in">✈ Konya → Belgrad</span><span>6 ülke</span><span>3 UNESCO mirası</span><span class="flt" data-flt="out">✈ Üsküp → Konya</span>
     </div>
     <div id="countdown"></div>
   </div>
@@ -1210,6 +1216,111 @@ document.querySelectorAll('.dolist').forEach(list => {
     });
   });
 });
+
+// ================= ROTAYI TERS ÇEVİR =================
+// Tek dokunuşla tüm güzergâhı Belgrad→Üsküp ↔ Üsküp→Belgrad yönünde çevirir.
+(function(){
+  const dayIds = ['gun1','gun2','gun3','gun4','gun5','gun6','gun7','gun8'];
+  const days = dayIds.map(id => document.getElementById(id));
+  if (days.some(d => !d)) return;
+
+  // Bir "A → B ✈ C" dizisini tokenlarına ayırıp ters çevirir (bağlaçları korur).
+  function mirror(s){
+    const toks = s.split(/\s(→|✈|←)\s/);
+    const nodes = toks.filter((_, i) => i % 2 === 0);
+    const seps  = toks.filter((_, i) => i % 2 === 1).reverse();
+    nodes.reverse();
+    let out = nodes[0] || '';
+    for (let i = 0; i < seps.length; i++) out += ' ' + seps[i] + ' ' + (nodes[i + 1] || '');
+    return out;
+  }
+
+  // --- Orijinal verileri bir kez önbelleğe al ---
+  const cache = days.map(sec => {
+    const eb = sec.querySelector('.eyebrow');
+    const parts = (eb ? eb.textContent : '').split('·').map(s => s.trim());
+    return { sec, eb, geo: parts.slice(2).join(' · ') };
+  });
+
+  const chipsBox = document.getElementById('chips');
+  const dayChips = [...chipsBox.querySelectorAll('a')].filter(a => /^#gun\d/.test(a.getAttribute('href')));
+  const chipCity = dayChips.map(a => {
+    const t = a.textContent.split('·');
+    return (t[1] || t[0]).trim();
+  });
+  const chipAnchor = dayChips[dayChips.length - 1].nextElementSibling; // #degerlendirme çipi
+
+  const table = document.querySelector('#rota table');
+  const rows = [...table.rows].slice(1);           // başlık hariç
+  const tbody = rows[0].parentNode;
+  const rowGuz = rows.map(r => r.cells[1].textContent.trim());
+
+  const mapsLink = document.querySelector('#rota .linkrow a');
+  const mapsBase = 'https://www.google.com/maps/dir/';
+  const mapsSegs = mapsLink ? mapsLink.getAttribute('href').replace(mapsBase, '').split('/') : [];
+
+  const flts = {
+    in:  document.querySelector('.flt[data-flt="in"]'),
+    out: document.querySelector('.flt[data-flt="out"]')
+  };
+  const fltOrig = { in: flts.in ? flts.in.textContent : '', out: flts.out ? flts.out.textContent : '' };
+
+  const secAnchor = document.getElementById('degerlendirme'); // gün bölümlerinin bittiği yer
+
+  function render(rev){
+    const order = rev ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
+
+    order.forEach((idx, p) => {
+      const num = p + 1, date = 11 + p;
+      const geo = cache[idx].geo ? (rev ? mirror(cache[idx].geo) : cache[idx].geo) : '';
+      // Bölüm sırası
+      secAnchor.parentNode.insertBefore(cache[idx].sec, secAnchor);
+      // Eyebrow: "N. Gün · DD Temmuz · Ülke"
+      if (cache[idx].eb) cache[idx].eb.textContent = num + '. Gün · ' + date + ' Temmuz' + (geo ? ' · ' + geo : '');
+      // Nav çipi
+      dayChips[idx].textContent = num + ' · ' + chipCity[idx];
+      chipsBox.insertBefore(dayChips[idx], chipAnchor);
+      // Tablo satırı
+      const row = rows[idx];
+      const a = row.cells[0].querySelector('a');
+      if (a) a.textContent = num;
+      row.cells[1].textContent = rev ? mirror(rowGuz[idx]) : rowGuz[idx];
+      tbody.appendChild(row);
+    });
+
+    // Google Maps linki
+    if (mapsLink) {
+      const segs = rev ? [...mapsSegs].reverse() : mapsSegs;
+      mapsLink.setAttribute('href', mapsBase + segs.join('/'));
+    }
+
+    // Hero uçuş bilgileri (varış / dönüş)
+    if (flts.in && flts.out) {
+      if (rev) {
+        flts.in.textContent  = mirror(fltOrig.out); // ilk gün: Konya → Üsküp
+        flts.out.textContent = mirror(fltOrig.in);  // son gün: Belgrad → Konya
+      } else {
+        flts.in.textContent  = fltOrig.in;
+        flts.out.textContent = fltOrig.out;
+      }
+    }
+  }
+
+  const revBtn = document.getElementById('revBtn');
+  let reversed = localStorage.getItem('routeReversed') === '1';
+  function paint(){
+    revBtn.textContent = reversed ? '⇄ Düz rota' : '⇄ Ters rota';
+    revBtn.classList.toggle('on', reversed);
+  }
+  render(reversed);
+  paint();
+  revBtn.addEventListener('click', () => {
+    reversed = !reversed;
+    localStorage.setItem('routeReversed', reversed ? '1' : '0');
+    render(reversed);
+    paint();
+  });
+})();
 
 // kırık görselleri gizle (çevrimdışı düzen bozulmasın)
 document.querySelectorAll('img').forEach(img => {
